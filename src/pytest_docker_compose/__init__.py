@@ -91,6 +91,11 @@ class DockerComposePlugin:
         group.addoption("--use-running-containers", action="store_true",
                         default=False, help="Boolean to use a running set of containers "
                                             "instead of calling 'docker-compose up'")
+        group.addoption("--destroy-running-containers", action="store_true",
+                        default=False, help="If an existing container is found, and "
+                                            "--use-running-containers has not been set, "
+                                            "this will 'docker-compose down' the whole project "
+                                            "and re-start it from scratch")
 
     @pytest.fixture(scope="session")
     def docker_project(self, request):
@@ -128,6 +133,12 @@ class DockerComposePlugin:
                     "'--docker-compose-no-build' flag, the newly build "
                     "containers won't be used if there are already "
                     "containers running!"))
+            if request.config.getoption("--destroy-running-containers"):
+                warnings.warn(UserWarning(
+                    "Using '--use-running-containers' along '--destroy-running-containers' "
+                    "is not consistent. No container will be destroyed, the '--use-running-containers' "
+                    "will preempt the second option"))
+
             current_containers = project.containers()
             containers = project.up()
             if not set(current_containers) == set(containers):
@@ -136,13 +147,15 @@ class DockerComposePlugin:
                     "pytest-docker-compose could not find all containers "
                     "running. The remaining containers have been started."))
         else:
-            if any(project.containers()):
+            if any(project.containers()) and not request.config.getoption("--destroy-running-containers"):
                 raise ContainersAlreadyExist(
                     "There are already existing containers, please remove all "
                     "containers by running 'docker-compose down' before using "
                     "the pytest-docker-compose plugin. Alternatively, you "
                     "can use the '--use-running-containers' flag to indicate "
                     "you will use the currently running containers.")
+            project.down(ImageType.none, request.config.getoption("--docker-compose-remove-volumes"))
+
         return project
 
     @classmethod
